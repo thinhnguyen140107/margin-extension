@@ -78,4 +78,4 @@ announced inside the extension before it takes effect.
 ## Contact
 
 Questions about this policy: open an issue in this repository, or write to
-bronzethinh140107@gmail.com.
+thinh.nguyen.140107@gmail.com.
