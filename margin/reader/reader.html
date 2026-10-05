@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Margin Reader</title>
+  <link rel="icon" href="../icons/icon32.png">
+  <link rel="stylesheet" href="../common/theme.css">
+  <script src="../common/theme.js"></script>
+  <link rel="stylesheet" href="pdfjs/pdf_viewer.css">
+  <link rel="stylesheet" href="reader.css">
+</head>
+<body>
+  <header class="bar">
+    <img class="logo" src="../icons/icon48.png" width="24" height="24" alt="">
+    <div id="title" class="title" title="Click to rename" tabindex="0" role="button"></div>
+
+    <div class="tools" id="docTools" hidden>
+      <button id="prev" class="icon" title="Previous page" aria-label="Previous page"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <input id="pageNum" class="num" type="text" inputmode="numeric" value="1" aria-label="Page">
+      <span class="of">/ <span id="pageCount">0</span></span>
+      <button id="next" class="icon" title="Next page" aria-label="Next page"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+      <span class="sep"></span>
+      <button id="zoomOut" class="icon" title="Zoom out (Ctrl + scroll down)" aria-label="Zoom out"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button id="zoomPct" class="pct" title="Reset to 100%">100%</button>
+      <button id="zoomIn" class="icon" title="Zoom in (Ctrl + scroll up)" aria-label="Zoom in"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+      <span class="sep"></span>
+      <button id="fit" class="icon" title="Fit to width" aria-label="Fit to width"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M10 9.5L7.5 12l2.5 2.5M14 9.5l2.5 2.5-2.5 2.5"/></svg></button>
+      <button id="rotate" class="icon" title="Rotate" aria-label="Rotate"><svg viewBox="0 0 24 24" style="transform:scaleX(-1)"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v4.5h4.5"/></svg></button>
+      <button id="findBtn" class="icon" title="Find (Ctrl+F)" aria-label="Find" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button>
+    </div>
+
+    <div class="grow"></div>
+
+    <div class="tools">
+      <span id="docActions" class="tools" hidden>
+        <button id="drawBtn" class="icon" title="Pen and highlighter" aria-label="Pen and highlighter" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 20l1.2-4.6L16.6 4a2 2 0 0 1 2.8 0l.6.6a2 2 0 0 1 0 2.8L8.6 18.8z"/><path d="M14.5 6l3.5 3.5"/></svg></button>
+        <button id="citeBtn" class="icon" title="Cite this document" aria-label="Cite this document"><svg viewBox="0 0 24 24"><path d="M10.5 6.5H5.5v5h3c0 2-1 3.5-3 4.5M19.5 6.5h-5v5h3c0 2-1 3.5-3 4.5" /></svg></button>
+      </span>
+      <button id="dash" class="icon" title="Library, vocabulary and review" aria-label="Library, vocabulary and review"><svg viewBox="0 0 24 24"><path d="M5 4.5h4.5v15H5zM9.5 4.5H14v15H9.5z"/><path d="M14.6 7.2l3.9-1 3 12.3-3.9 1z"/></svg></button>
+      <button id="more" class="icon" title="More" aria-label="More" aria-haspopup="menu"><svg viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="18.5" r="1.4" fill="currentColor"/></svg></button>
+    </div>
+    <input id="file" type="file" accept="application/pdf,.pdf" hidden>
+  </header>
+
+  <div id="findBar" class="findbar" hidden>
+    <input id="find" type="search" placeholder="Find in document" aria-label="Find in document">
+    <span id="findCount" class="muted"></span>
+    <button id="findPrev" class="icon" title="Previous match" aria-label="Previous match"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+    <button id="findNext" class="icon" title="Next match" aria-label="Next match"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+    <button id="findClose" class="icon" title="Close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+
+  <div id="drawBar" class="drawbar" hidden role="toolbar" aria-label="Drawing tools">
+    <button class="seg" data-tool="marker" title="Thick see-through stroke; near-straight strokes are straightened">Highlighter</button>
+    <button class="seg" data-tool="pen" title="Thin solid stroke">Pen</button>
+    <button class="seg" data-tool="eraser" title="Click or drag over a mark to remove it">Eraser</button>
+    <span class="sep"></span>
+    <span id="drawColors" class="dots"></span>
+    <span class="sep"></span>
+    <input id="drawSize" type="range" min="1" max="10" step="1" title="Thickness" aria-label="Thickness">
+    <button id="drawUndo" class="icon" title="Undo last mark (Ctrl+Z)" aria-label="Undo last mark"><svg viewBox="0 0 24 24"><path d="M9 7L4.5 11.5 9 16"/><path d="M5 11.5h9a5 5 0 0 1 0 10h-2"/></svg></button>
+    <button id="drawDone" class="btn pri">Done</button>
+  </div>
+
+  <main id="main">
+    <div id="viewerContainer" tabindex="0"><div id="viewer" class="pdfViewer"></div></div>
+
+    <!-- Tabs on the edge of the page open one panel at a time; click the open one to close it. -->
+    <nav id="edge" class="edge" aria-label="Panels" hidden>
+      <button class="tab edgetab" data-tab="hl" aria-label="Notes and highlights">
+        <svg viewBox="0 0 24 24"><path d="M6 4.5h9l3 3V19.5H6z"/><path d="M9 10.5h6M9 14h6M9 17.5h3.5"/></svg><span class="lbl">Notes</span><span id="hlCount" class="count" hidden></span>
+      </button>
+      <button class="tab edgetab" data-tab="outline" aria-label="Sections">
+        <svg viewBox="0 0 24 24"><path d="M9 7h11M9 12h11M9 17h11"/><circle cx="4.8" cy="7" r="1" fill="currentColor"/><circle cx="4.8" cy="12" r="1" fill="currentColor"/><circle cx="4.8" cy="17" r="1" fill="currentColor"/></svg><span class="lbl">Sections</span>
+      </button>
+      <button class="tab edgetab" data-tab="thumbs" aria-label="Thumbnails">
+        <svg viewBox="0 0 24 24"><path d="M7 3.5h7l4 4V20.5H7z"/><path d="M14 3.5v4h4"/></svg><span class="lbl">Thumbnails</span>
+      </button>
+      <button class="tab edgetab" data-tab="cite" aria-label="Cite">
+        <svg viewBox="0 0 24 24"><path d="M10.5 6.5H5.5v5h3c0 2-1 3.5-3 4.5M19.5 6.5h-5v5h3c0 2-1 3.5-3 4.5"/></svg><span class="lbl">Cite</span>
+      </button>
+    </nav>
+
+    <aside id="side" aria-label="Side panel">
+      <div class="panelhead"><span id="panelTitle">Notes</span><span class="grow"></span>
+        <button id="panelClose" class="icon" title="Close" aria-label="Close panel"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <div id="hlList" class="panel"></div>
+      <div id="outline" class="panel" hidden></div>
+      <div id="thumbs" class="panel thumbs" hidden></div>
+      <div id="cite" class="panel" hidden></div>
+    </aside>
+
+    <div id="ocrStatus" class="ocrstatus" role="status" hidden></div>
+
+    <section id="empty">
+      <div class="drop">
+        <h1>Margin Reader</h1>
+        <p>Drop a PDF here, or choose one from your computer.</p>
+        <button id="open2" class="btn pri">Choose a PDF</button>
+        <p id="error" class="error" hidden></p>
+        <div id="recent"></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="propsDialog">
+    <form method="dialog">
+      <h2>Document properties</h2>
+      <dl id="propsList"></dl>
+      <div class="dlgfoot"><button class="btn pri" value="ok">Close</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="pwDialog">
+    <form method="dialog">
+      <p id="pwText">This PDF is password-protected.</p>
+      <input id="pwInput" type="password" autocomplete="off" aria-label="Password">
+      <div class="dlgfoot">
+        <button class="btn" value="cancel">Cancel</button>
+        <button class="btn pri" value="ok">Open</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="../common/store.js"></script>
+  <script src="../common/ui.js"></script>
+  <script src="../common/update.js"></script>
+  <script src="../common/export.js"></script>
+  <script src="../common/sync.js"></script>
+  <script type="module" src="reader.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+store/_build/
+store/x/
+*.log
+.DS_Store
+Thumbs.db
+Claude outputs/
+store/_old/

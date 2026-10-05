@@ -1,0 +1,33 @@
+/* Margin - one set of colors for every Margin page.
+   light - light interface;  dark - dark interface, the document untouched;
+   night - dark interface and the document darkened too (reader only).
+   Neutral grays and a single blue accent, deliberately plain. */
+:root, :root[data-ui="light"] {
+  --bar: #ffffff; --bar-fg: #202124; --bar-muted: #5f6368; --bar-field: #f1f3f4; --bar-line: #dadce0;
+  --bg: #e8eaed; --panel: #ffffff; --raised: #ffffff; --fg: #202124; --muted: #5f6368; --bd: #dadce0; --soft: #f1f3f4; --hover: rgba(60, 64, 67, .08);
+  --accent: #1a73e8; --accent-fg: #ffffff; --accent-soft: #e8f0fe; --danger: #d93025;
+  --tab: rgba(255, 255, 255, .78); --tab-on: #ffffff; --tab-fg: #5f6368;
+  --shadow: 0 1px 3px rgba(60, 64, 67, .3), 0 4px 12px rgba(60, 64, 67, .15);
+  color-scheme: light;
+}
+:root[data-ui="dark"] {
+  --bar: #202124; --bar-fg: #e8eaed; --bar-muted: #9aa0a6; --bar-field: #3c4043; --bar-line: #5f6368;
+  --bg: #9a9da1; --panel: #292a2d; --raised: #35363a; --fg: #e8eaed; --muted: #9aa0a6; --bd: #3c4043; --soft: #35363a; --hover: rgba(232, 234, 237, .08);
+  --accent: #8ab4f8; --accent-fg: #202124; --accent-soft: rgba(138, 180, 248, .16); --danger: #f28b82;
+  --tab: rgba(32, 33, 36, .34); --tab-on: #202124; --tab-fg: #e8eaed;
+  --shadow: 0 1px 3px rgba(0, 0, 0, .5), 0 4px 14px rgba(0, 0, 0, .35);
+  color-scheme: dark;
+}
+:root[data-theme="night"] { --bg: #17181a; --tab: rgba(232, 234, 237, .10); --tab-on: #3c4043; }
+
+/* Motion: short and quiet. One curve, two speeds; all of it off when the system asks for reduced motion. */
+:root { --ease: cubic-bezier(.2, 0, 0, 1); --t-fast: .12s; --t: .2s; }
+@keyframes mg-pop { from { opacity: 0; translate: 0 -4px; } }
+@keyframes mg-rise { from { opacity: 0; translate: 0 6px; } }
+@keyframes mg-fade { from { opacity: 0; } }
+/* Motion off (data-motion is set by theme.js: the computer asks for reduced motion, or Margin's own setting says so).
+   It must be a real "none": even a 1 ms transition makes every size and position change arrive a frame late,
+   and code that measures the page right after changing it would then read the old layout. */
+:root[data-motion="off"] *, :root[data-motion="off"] *::before, :root[data-motion="off"] *::after {
+  animation: none !important; transition: none !important; scroll-behavior: auto !important;
+}

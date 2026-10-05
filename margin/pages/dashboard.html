@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Margin</title>
+  <link rel="icon" href="../icons/icon32.png">
+  <link rel="stylesheet" href="../common/theme.css">
+  <script src="../common/theme.js"></script>
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="brand"><img src="../icons/icon48.png" alt="" width="22" height="22"> Margin</div>
+    <button class="navbtn on" data-view="library">Library</button>
+    <button class="navbtn" data-view="vocab">Vocabulary</button>
+    <button class="navbtn" data-view="review">Review <span id="dueBadge" class="badge" hidden></span></button>
+    <button class="navbtn" data-view="notes">Notes</button>
+    <button class="navbtn" data-view="settings">Settings</button>
+    <div class="grow"></div>
+    <button id="openReader" class="btn">Open a PDF</button>
+  </nav>
+
+  <main>
+    <section id="library" class="view split">
+      <div class="col list">
+        <input id="libSearch" class="field" type="search" placeholder="Search highlights and notes" aria-label="Search highlights and notes">
+        <div id="docList"></div>
+      </div>
+      <div class="col detail" id="docDetail"></div>
+    </section>
+
+    <section id="vocab" class="view" hidden>
+      <div class="toolbar">
+        <div id="vocabStats" class="stats"></div>
+        <div class="grow"></div>
+        <input id="vocabSearch" class="field" type="search" placeholder="Search words" aria-label="Search words">
+        <select id="vocabSort" class="field" aria-label="Sort">
+          <option value="new">Newest first</option>
+          <option value="due">Due soonest</option>
+          <option value="az">A to Z</option>
+        </select>
+      </div>
+      <div id="vocabList"></div>
+    </section>
+
+    <section id="review" class="view" hidden><div id="reviewBox"></div></section>
+
+    <section id="notes" class="view split" hidden>
+      <div class="col list">
+        <button id="newNote" class="btn pri wide">New note</button>
+        <div id="noteList"></div>
+      </div>
+      <div class="col detail" id="noteDetail"></div>
+    </section>
+
+    <section id="settings" class="view" hidden><div id="settingsBox" class="narrow"></div></section>
+  </main>
+
+  <script src="../common/store.js"></script>
+  <script src="../common/ui.js"></script>
+  <script src="../common/update.js"></script>
+  <script src="../common/export.js"></script>
+  <script src="../common/sync.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

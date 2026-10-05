@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../common/theme.css">
+<script src="../common/theme.js"></script>
+<style>
+  
+  * { box-sizing: border-box; }
+  body { width: 300px; margin: 0; padding: 12px; font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--fg); background: var(--panel); }
+  [hidden] { display: none !important; }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; margin-bottom: 10px; }
+  button, textarea { font: inherit; color: inherit; }
+  .btn { display: flex; width: 100%; align-items: center; border: 1px solid var(--bd); background: var(--raised); padding: 8px 10px; border-radius: 8px; font-weight: 500; cursor: pointer; margin-bottom: 6px; text-align: left; }
+  .btn:hover { background: var(--soft); }
+  .btn.pri { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  .btn .n { margin-left: auto; color: var(--muted); font-weight: 400; }
+  .toggle { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-top: 1px solid var(--bd); margin-top: 6px; }
+  .toggle span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
+  .note { border-top: 1px solid var(--bd); padding-top: 10px; margin-top: 4px; }
+  textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid var(--bd); background: var(--raised); border-radius: 8px; padding: 7px 8px; outline: none; margin-bottom: 6px; }
+  textarea:focus { border-color: var(--accent); }
+  .hint { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+  <div class="brand"><img src="../icons/icon48.png" width="20" height="20" alt=""> Margin</div>
+  <button id="thisPdf" class="btn pri" hidden>Open this PDF in the reader</button>
+  <button id="openPdf" class="btn">Open a PDF file</button>
+  <button id="review" class="btn">Review vocabulary <span id="due" class="n"></span></button>
+  <button id="dash" class="btn">Library and notes <span id="count" class="n"></span></button>
+  <label class="toggle" id="siteRow" hidden><span id="siteLabel"></span><input id="site" type="checkbox"></label>
+  <div class="note">
+    <textarea id="quick" placeholder="Quick note..." aria-label="Quick note"></textarea>
+    <button id="saveNote" class="btn">Save note</button>
+    <div id="hint" class="hint"></div>
+  </div>
+  <script src="../common/store.js"></script>
+  <script src="../common/update.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
