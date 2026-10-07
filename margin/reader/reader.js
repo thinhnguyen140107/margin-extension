@@ -10,7 +10,7 @@ const { EventBus, PDFViewer, PDFLinkService, PDFFindController } = await import(
 const Store = globalThis.MarginStore, UI = globalThis.MarginUI, h = UI.h;
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-const fileParam = params.get('file');
+const fileParam = Store.safeUrl(params.get('file')); // web and local-file addresses only
 const embedded = window.parent !== window;
 
 if (embedded) {
@@ -32,6 +32,9 @@ const viewer = new PDFViewer({
   imageResourcesPath: chrome.runtime.getURL('reader/pdfjs/images/')
 });
 linkService.setViewer(viewer);
+// Links inside a PDF open in a new tab, and the site they lead to learns nothing about this one.
+linkService.externalLinkTarget = 2; // LinkTarget.BLANK
+linkService.externalLinkRel = 'noopener noreferrer nofollow';
 
 let settings = await Store.getSettings();
 let pdf = null;
@@ -500,9 +503,10 @@ function contextFor(range, text) {
   const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
   let n;
   while ((n = walker.nextNode())) {
-    if (lastParent && n.parentElement !== lastParent && !/\s$/.test(full) && !(lastNode && joinsWord(lastNode, n))) full += ' ';
+    if (lastNode && n.data.trim() && LINE_HYPHEN.test(full) && brokenWord(lastNode, n)) full = full.replace(/[-\u2010\u00AD]\s*$/, '');
+    else if (lastParent && n.parentElement !== lastParent && !/\s$/.test(full) && !(lastNode && joinsWord(lastNode, n))) full += ' ';
     lastParent = n.parentElement;
-    lastNode = n.data.length ? n : lastNode;
+    lastNode = n.data.trim() ? n : lastNode;
     if (n === range.startContainer) start = full.length + range.startOffset;
     full += n.data;
   }
@@ -570,6 +574,27 @@ function touching(prev, next) {
 }
 const joinsWord = (prev, next) => WORDCHAR.test(prev.data[prev.data.length - 1] || '') && WORDCHAR.test(next.data[0] || '') && touching(prev, next);
 // The words of a selection, with the pieces of a cut word put back together (and a space between everything else).
+// A word broken at the end of a line: "transmis-" closes one line and "sion" opens the next. Such a pair is one
+// word (the hyphen belongs to the typesetting, not to the word). Only for upright pages.
+const LINE_HYPHEN = /\p{L}[-\u2010\u00AD]\s*$/u;
+function charBox(node, i) {
+  const r = document.createRange();
+  r.setStart(node, i);
+  r.setEnd(node, i + 1);
+  return r.getBoundingClientRect();
+}
+function brokenWord(prev, next) {
+  if (viewer.pagesRotation || !LINE_HYPHEN.test(prev.data) || !/^\s*\p{Ll}/u.test(next.data)) return false;
+  const a = charBox(prev, prev.data.search(/[-\u2010\u00AD]\s*$/)), b = charBox(next, next.data.search(/\S/));
+  if (!a.height || !b.height) return false;
+  return b.top > a.top + a.height * 0.5 && b.top < a.top + a.height * 3 && b.left < a.left; // the next line down, further left
+}
+// The next piece of text that is not just spaces.
+function solidNeighbour(node, dir) {
+  let n = node;
+  for (let i = 0; i < 4 && (n = textNeighbour(n, dir)); i++) if (n.data.trim()) return n;
+  return null;
+}
 function rangeText(range) {
   let out = '', last = null;
   for (const n of textNodesIn(range)) {
@@ -578,7 +603,9 @@ function rangeText(range) {
     const s = n === range.startContainer ? range.startOffset : 0;
     const e = n === range.endContainer ? range.endOffset : n.data.length;
     if (e <= s) continue;
-    if (last && !/\s$/.test(out) && !(last.parentElement === parent || joinsWord(last, n))) out += ' ';
+    if (!n.data.trim() && last) continue; // spacing between pieces is worked out below
+    if (last && s === 0 && LINE_HYPHEN.test(out) && brokenWord(last, n)) out = out.replace(/[-\u2010\u00AD]\s*$/, '');
+    else if (last && !/\s$/.test(out) && !(last.parentElement === parent || joinsWord(last, n))) out += ' ';
     out += n.data.slice(s, e);
     last = n;
   }
@@ -592,21 +619,27 @@ function wordBounds(sn, so, en, eo) {
       so--;
     } else {
       const prev = textNeighbour(sn, -1);
-      if (!prev || !joinsWord(prev, sn)) break;
-      sn = prev;
-      so = prev.data.length;
+      if (prev && joinsWord(prev, sn)) { sn = prev; so = prev.data.length; continue; }
+      const above = solidNeighbour(sn, -1); // "sion" at the start of a line: carry on into "transmis-" above
+      if (!above || !brokenWord(above, sn)) break;
+      sn = above;
+      so = above.data.search(/[-\u2010\u00AD]\s*$/);
     }
   }
   for (let guard = 0; guard < 200; guard++) { // forwards
     if (eo < en.data.length) {
-      if (!WORDCHAR.test(en.data[eo])) break;
-      eo++;
-    } else {
-      const next = textNeighbour(en, 1);
-      if (!next || !joinsWord(en, next)) break;
-      en = next;
-      eo = 0;
+      if (WORDCHAR.test(en.data[eo])) { eo++; continue; }
+      // "transmis" right before a line-end hyphen: carry on into "sion" on the next line
+      if (eo > 0 && /^[-\u2010\u00AD]\s*$/.test(en.data.slice(eo))) {
+        const below = solidNeighbour(en, 1);
+        if (below && brokenWord(en, below)) { en = below; eo = below.data.search(/\S/); continue; }
+      }
+      break;
     }
+    const next = textNeighbour(en, 1);
+    if (!next || !joinsWord(en, next)) break;
+    en = next;
+    eo = 0;
   }
   return [sn, so, en, eo];
 }
@@ -721,35 +754,53 @@ function rectOf(range) {
   return { left, right, top: t, bottom: Math.max(t, bottom), width: right - left, height: Math.max(0, bottom - t) };
 }
 
+// What can be done with the current selection - the same actions for the toolbar and for the keyboard.
+function selectionActions(cur, rect) {
+  return {
+    async onColor(color) {
+      await createHighlight(cur.range, cur.text, { color });
+      getSelection().removeAllRanges();
+    },
+    async onNote() {
+      const hl = await createHighlight(cur.range, cur.text, {});
+      getSelection().removeAllRanges();
+      if (hl) openEditor(hl, rect, { focusNote: true });
+    },
+    onTranslate() {
+      const page = Number((cur.range.startContainer.parentElement.closest('.page') || {}).dataset?.pageNumber) || null;
+      UI.showCard(rect, { text: cur.text, context: contextFor(cur.range, cur.text), source: sourceInfo(page) }, {
+        async onSaved() {
+          if (!settings.markSavedWords || cur.text.length > 80) return;
+          await createHighlight(cur.range, cur.text, { kind: 'vocab' });
+          getSelection().removeAllRanges();
+        }
+      });
+    },
+    onAddColor: addDocColor
+  };
+}
 document.addEventListener('mouseup', e => {
   if (UI.isOwn(e.target) || !pdf) return;
   setTimeout(() => {
     const cur = currentSelection();
     if (!cur) return;
     const rect = rectOf(cur.range);
-    UI.showToolbar(rect, {
-      async onColor(color) {
-        await createHighlight(cur.range, cur.text, { color });
-        getSelection().removeAllRanges();
-      },
-      async onNote() {
-        const hl = await createHighlight(cur.range, cur.text, {});
-        getSelection().removeAllRanges();
-        if (hl) openEditor(hl, rect, { focusNote: true });
-      },
-      onTranslate() {
-        const page = Number((cur.range.startContainer.parentElement.closest('.page') || {}).dataset?.pageNumber) || null;
-        UI.showCard(rect, { text: cur.text, context: contextFor(cur.range, cur.text), source: sourceInfo(page) }, {
-          async onSaved() {
-            if (!settings.markSavedWords || cur.text.length > 80) return;
-            await createHighlight(cur.range, cur.text, { kind: 'vocab' });
-            getSelection().removeAllRanges();
-          }
-        });
-      },
-      onAddColor: addDocColor
-    }, palette());
+    UI.showToolbar(rect, selectionActions(cur, rect), palette());
   }, 0);
+});
+// With text selected: 1-4 highlight in that color, T looks the word up, N adds a note.
+document.addEventListener('keydown', e => {
+  if (!pdf || draw.on || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+  if (UI.isOwn(e.target) || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable || document.querySelector('dialog[open]')) return;
+  const key = e.key.toLowerCase();
+  const color = /^[1-4]$/.test(key) ? palette()[Number(key) - 1] : null;
+  if (!color && key !== 't' && key !== 'n') return;
+  const cur = currentSelection();
+  if (!cur) return;
+  e.preventDefault();
+  const rect = rectOf(cur.range), act = selectionActions(cur, rect);
+  UI.hideToolbar();
+  if (color) act.onColor(color.id); else if (key === 't') act.onTranslate(); else act.onNote();
 });
 document.addEventListener('mousedown', e => { if (!UI.isOwn(e.target)) UI.hide(); }, true);
 container.addEventListener('scroll', () => UI.hideToolbar(), { passive: true });
@@ -1626,7 +1677,7 @@ function renderCite(status, editing) {
   sel.value = style;
   sel.addEventListener('change', () => Store.setSettings({ citeStyle: sel.value }));
   const result = h('div', { class: 'citebox' });
-  result.innerHTML = out.html; // built from escaped fields in cite.js
+  Cite.renderCitation(result, out.html);
   const ref = Cite.inText(cite.meta, style, printedPage(viewer.currentPageNumber || 1));
   const q = cite.meta.title + (cite.meta.authors && cite.meta.authors[0] ? ' ' + cite.meta.authors[0].family : '');
   box.appendChild(h('div', { class: 'citepanel' },
@@ -1965,7 +2016,31 @@ $('zoomIn').addEventListener('click', () => zoomStep(1));
 $('zoomOut').addEventListener('click', () => zoomStep(-1));
 $('zoomPct').addEventListener('click', () => { viewer.currentScaleValue = '1'; });
 $('fit').addEventListener('click', () => { viewer.currentScaleValue = viewer.currentScaleValue === 'page-width' ? 'page-fit' : 'page-width'; });
-$('rotate').addEventListener('click', () => { viewer.pagesRotation = (viewer.pagesRotation + 90) % 360; });
+// Rotating keeps your place: the spot in the middle of the window before the turn is in the middle after it.
+// (On its own the viewer jumps to the top of the current page.)
+function rotateView() {
+  if (!pdf) return;
+  const box = container.getBoundingClientRect();
+  const x = box.left + container.clientWidth / 2, y = box.top + container.clientHeight / 2;
+  const page = pageAt(x, y);
+  let fx = 0.5, fy = 0.5;
+  if (page) {
+    const r = page.getBoundingClientRect();
+    fx = Math.min(1, Math.max(0, (x - r.left - page.clientLeft) / Math.max(1, page.clientWidth)));
+    fy = Math.min(1, Math.max(0, (y - r.top - page.clientTop) / Math.max(1, page.clientHeight)));
+  }
+  UI.hide();
+  placeQuiet = Date.now() + 400;
+  viewer.pagesRotation = (viewer.pagesRotation + 90) % 360; // the pages have their new shape when this returns
+  if (!page || !page.isConnected) return;
+  // a quarter turn clockwise carries the point (fx, fy) of the sheet to (1 - fy, fx)
+  const r = page.getBoundingClientRect();
+  container.scrollLeft += r.left + page.clientLeft + (1 - fy) * page.clientWidth - x;
+  container.scrollTop += r.top + page.clientTop + fx * page.clientHeight - y;
+  clearTimeout(placeTimer);
+  placeTimer = setTimeout(savePlace, 1200);
+}
+$('rotate').addEventListener('click', rotateView);
 $('dash').addEventListener('click', () => chrome.runtime.sendMessage({ type: 'open-dashboard' }));
 // Small pop-up menu under a toolbar button. items: [{ label, hint, on, swatch, run }]
 let openMenu = null;

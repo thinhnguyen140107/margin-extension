@@ -1,6 +1,6 @@
 # Margin - Privacy Policy
 
-Last updated: 4 October 2026
+Last updated: 6 October 2026
 
 Margin is a browser extension for highlighting and annotating PDFs and web pages, translating
 the words you choose, and reviewing them as flashcards. This page explains what the extension
@@ -34,15 +34,16 @@ Only in these three cases, and each one starts with an action of yours:
 
 | When you... | What is sent | To whom |
 |---|---|---|
-| click **Translate** on a selection | the selected text, and the two language codes | Google Translate (translate.googleapis.com); if it does not answer, MyMemory (api.mymemory.translated.net) |
-| translate a single word or short phrase | that word or phrase, to fetch its dictionary definition | Free Dictionary API (api.dictionaryapi.dev) |
+| click **Translate** on a selection (or press T) | the selected text, and the two language codes | Google Translate (translate.googleapis.com); if it does not answer, MyMemory (api.mymemory.translated.net) |
+| look up a single word or short phrase | that word or phrase, to fetch its dictionary definition | Wiktionary (en.wiktionary.org); if it has no entry or does not answer, the Free Dictionary API (api.dictionaryapi.dev) |
 | open the **Cite** panel of a PDF, or click "Look up again" | the document's title, first author's family name and DOI, if it has one | Crossref (api.crossref.org) |
 
 These requests carry no account, no identifier and no cookies from Margin. As with any web
 request, the receiving service sees your IP address; its own privacy policy applies to that.
 
-Margin does not read, collect or send the pages you visit. On web pages it only looks at text
-that you select and choose to highlight or translate.
+Margin does not read, collect or send the pages you visit. By default it does nothing at all on
+ordinary web pages: it is a PDF reader. If you switch on "Use Margin on web pages too" in Settings,
+it looks only at text that you select and choose to highlight or translate.
 
 ## Files Margin writes on your device
 
@@ -57,12 +58,12 @@ that you select and choose to highlight or translate.
 
 ## Permissions, and why Margin asks for them
 
-- **Access to all websites**: to open any PDF link in the Margin reader, and to let you highlight
-  and translate text on any web page. Margin does nothing on a page until you select text.
+- **Access to all websites**: to open a PDF at any address in the Margin reader and, if you switch
+  that option on, to let you highlight and translate text on web pages.
 - **Storage / unlimited storage**: to keep your highlights, notes, vocabulary and recognized text.
 - **Downloads**: to save backups and the files you export.
-- **Context menus**: for the right-click items "Translate with Margin", "Highlight selection" and
-  "Open link in Margin PDF reader".
+- **Context menus**: for the right-click item "Open link in Margin PDF reader" and, when Margin is
+  switched on for web pages, "Translate with Margin" and "Highlight selection".
 - **Alarms**: to run the scheduled backup and to update the count of flashcards due.
 
 ## Children

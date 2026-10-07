@@ -24,7 +24,9 @@
       if (seen.has(key)) continue;
       seen.add(key);
       const entry = (opts.vocab || []).find(v => String(v.term || '').trim().toLowerCase() === key);
-      words.push({ term: hl.text, translation: entry ? entry.translation || '' : '', page: hl.page ? String(opts.pageOf(hl)) : '' });
+      // the meaning of a saved word: its definition first, the translation after it
+      const def = entry && entry.defs && entry.defs[0] ? entry.defs[0].definition || '' : '', tr = entry ? entry.translation || '' : '';
+      words.push({ term: hl.text, translation: def ? def + (tr ? ' (' + tr + ')' : '') : tr, page: hl.page ? String(opts.pageOf(hl)) : '' });
     }
     return {
       title: opts.title || 'Notes', source: opts.source || '', citation: opts.citation || null, groups, words,

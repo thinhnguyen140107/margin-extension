@@ -46,12 +46,21 @@
     .grow { flex: 1; }
     .icon { background: none; border: 0; color: var(--muted); padding: 2px 5px; border-radius: 6px; line-height: 1; font-size: 14px; }
     .icon:hover { background: var(--soft); color: var(--fg); }
+    .icon.on { color: var(--accent); }
+    .icon.bad { opacity: .45; }
     .tr { font-size: 17px; font-weight: 600; color: var(--accent); margin: 8px 0 4px; overflow-wrap: anywhere; }
     .tr.long { font-size: 14px; font-weight: 500; }
     .alts { margin: 4px 0; }
     .alts div, .defs div { margin: 3px 0; }
     .pos { display: inline-block; font-size: 11px; color: var(--muted); font-style: italic; margin-right: 6px; }
     .defs { border-top: 1px solid var(--bd); margin-top: 8px; padding-top: 6px; }
+    .defs.lead { border-top: 0; margin-top: 6px; padding-top: 0; font-size: 14px; line-height: 1.5; }
+    .defs.lead > div { margin: 6px 0; }
+    .form { color: var(--muted); font-size: 12px; font-style: italic; }
+    .under { border-top: 1px solid var(--bd); margin-top: 8px; padding-top: 2px; }
+    .more { background: none; border: 0; padding: 4px 0; margin-top: 4px; color: var(--accent); font: inherit; font-size: 12px; }
+    .more:hover { text-decoration: underline; }
+    [hidden] { display: none !important; }
     .ex { color: var(--muted); font-style: italic; }
     .ctx { margin-top: 8px; padding: 6px 8px; background: var(--soft); border-radius: 8px; color: var(--muted); font-size: 12px; }
     .ctx b { color: var(--fg); }
@@ -107,6 +116,8 @@
     return el;
   }
 
+  let sealed = false; // see setPrivate
+  function setPrivate(on) { sealed = !!on; }
   function ensure() {
     if (host && host.isConnected) return;
     host = document.createElement('margin-ui');
@@ -114,7 +125,7 @@
     if (document.documentElement.dataset.ui) host.dataset.ui = document.documentElement.dataset.ui; // Margin pages only
     // motion: Margin's own pages decide in theme.js; on other pages follow the computer
     host.dataset.motion = document.documentElement.dataset.motion || (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'off' : 'on');
-    const root = host.attachShadow({ mode: 'open' });
+    const root = host.attachShadow({ mode: sealed ? 'closed' : 'open' });
     root.appendChild(h('style', null, CSS));
     layer = h('div', { class: 'layer' });
     root.appendChild(layer);
@@ -219,13 +230,71 @@
     place(toolbarEl, rect, 'above');
   }
 
-  function speak(text, lang) {
-    try {
-      speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = lang && lang !== 'auto' ? lang : 'en';
-      speechSynthesis.speak(u);
-    } catch (e) { /* unavailable */ }
+  // Reading aloud uses the voices installed on this computer. The voice is chosen here rather than left to the
+  // browser: handed a language it has no voice for (a short English word is easily taken for French), a browser
+  // may say nothing at all. done(error) is called once, with no argument when the word was spoken.
+  let saying = null; // the utterance in progress; kept so it is not discarded before it has been spoken
+  function voiceFor(synth, lang) {
+    let list = [];
+    try { list = synth.getVoices() || []; } catch (e) { /* none */ }
+    if (!list.length) return null;
+    const code = v => String(v.lang || '').toLowerCase().replace('_', '-');
+    const want = String(lang).toLowerCase().replace('_', '-'), base = want.split('-')[0];
+    const same = list.filter(v => code(v).split('-')[0] === base);
+    return same.find(v => code(v) === want) || same.find(v => v.default) || same.find(v => v.localService) || same[0] ||
+      list.find(v => v.default) || list[0];
+  }
+  function speak(text, lang, done) {
+    lang = lang && lang !== 'auto' ? lang : 'en';
+    let finished = false;
+    const end = err => { if (finished) return; finished = true; clearTimeout(watch); if (done) done(err); };
+    let watch = 0, synth = null;
+    try { synth = g.speechSynthesis; } catch (e) { /* blocked */ }
+    if (!synth || typeof SpeechSynthesisUtterance === 'undefined') { end('unavailable'); return; }
+    const go = () => {
+      if (finished) return;
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        const v = voiceFor(synth, lang);
+        if (v) { u.voice = v; u.lang = v.lang; } else u.lang = lang;
+        u.onstart = () => clearTimeout(watch);
+        u.onend = () => { if (saying === u) saying = null; end(); };
+        u.onerror = e => { if (saying === u) saying = null; end(e && (e.error === 'interrupted' || e.error === 'canceled') ? undefined : (e && e.error) || 'error'); };
+        saying = u;
+        synth.resume(); // a speech queue left paused would swallow the word
+        synth.speak(u);
+        watch = setTimeout(() => { try { synth.cancel(); } catch (e) { /* gone */ } end('silent'); }, 6000);
+      } catch (e) { end('unavailable'); }
+    };
+    // Something still being said is stopped first. Speaking in the same breath as the stop loses the new
+    // word in Chromium, so it follows a moment later.
+    const begin = () => {
+      let busy = false;
+      try { busy = synth.speaking || synth.pending; if (busy) synth.cancel(); } catch (e) { /* carry on */ }
+      if (busy) setTimeout(go, 90); else go();
+    };
+    // Just after the browser starts the list of voices may not have arrived yet.
+    let have = 0;
+    try { have = (synth.getVoices() || []).length; } catch (e) { /* none */ }
+    if (have || typeof synth.addEventListener !== 'function') { begin(); return; }
+    let waited = false;
+    const ready = () => { if (waited) return; waited = true; synth.removeEventListener('voiceschanged', ready); begin(); };
+    synth.addEventListener('voiceschanged', ready);
+    setTimeout(ready, 500);
+  }
+  // A Listen button shows that it is speaking, and says so when no voice answered.
+  function listen(btn, text, lang) {
+    const turn = btn._turn = (btn._turn || 0) + 1; // a second click replaces the first; only the latest one reports
+    btn.classList.remove('bad');
+    btn.classList.add('on');
+    btn.title = 'Listen';
+    speak(text, lang, err => {
+      if (btn._turn !== turn) return;
+      btn.classList.remove('on');
+      if (!err) return;
+      btn.classList.add('bad');
+      btn.title = 'No voice answered. Check that a voice for this language is installed on this computer.';
+    });
   }
 
   function contextNode(sentence, term) {
@@ -243,7 +312,7 @@
     const text = info.text.replace(/\s+/g, ' ').trim();
     const long = text.length > 48;
     const body = h('div', null, h('div', { class: 'muted', style: 'margin-top:8px' }, h('span', { class: 'spin' }), 'Looking up...'));
-    const card = h('div', { class: 'card', role: 'dialog', 'aria-label': 'Translation' },
+    const card = h('div', { class: 'card', role: 'dialog', 'aria-label': 'Word' },
       h('div', { class: 'head' },
         h('span', { class: 'term' + (long ? ' long' : '') }, text),
         h('span', { class: 'ph' }),
@@ -256,69 +325,103 @@
     layer.appendChild(card);
     place(card, rect, 'below');
 
-    let res;
+    // What the card leads with (Settings > Translation):
+    //   definition  - the meaning in the text's own language; the translation waits behind a click
+    //   both        - the definition, with the translation underneath
+    //   translation - the translation first, definitions below it
+    // Both answers are asked for at once and each is shown as soon as it arrives. Where there is no
+    // definition (a phrase, a name, a language without a dictionary) the translation takes its place.
+    const settings = await Store.getSettings().catch(() => ({}));
+    const mode = settings.cardMode === 'translation' || settings.cardMode === 'both' ? settings.cardMode : 'definition';
+    let res = null, dict = null, dictDone = long, showTr = false, savedEntry = null, existing = null, saveBtn = null, late = false;
+
+    const defsNode = lead => h('div', { class: 'defs' + (lead ? ' lead' : '') }, dict.of ? h('div', { class: 'form' }, dict.form) : null, dict.defs.map(x =>
+      h('div', null, x.pos ? h('span', { class: 'pos' }, x.pos) : null, x.definition, x.example ? h('div', { class: 'ex' }, '"' + x.example + '"') : null)));
+    const trNodes = small => [
+      res.translation ? h('div', { class: 'tr' + (long || small ? ' long' : '') }, res.translation) : null,
+      res.alts && res.alts.length ? h('div', { class: 'alts' }, res.alts.slice(0, 4).map(a =>
+        h('div', null, a.pos && a.pos !== 'other' ? h('span', { class: 'pos' }, a.pos) : null, a.terms.join(', ')))) : null
+    ];
+    const waiting = () => h('div', { class: 'muted', style: 'margin-top:8px' }, h('span', { class: 'spin' }), 'Looking up...');
+
+    function render() {
+      if (cardEl !== card) return;
+      const haveDefs = !!(dict && dict.ok && (dict.defs || []).length);
+      const trReady = !!(res && res.ok);
+      body.textContent = '';
+      if (res && !res.ok && dictDone && !haveDefs) {
+        body.appendChild(h('div', { class: 'err' }, res.error || 'Lookup failed.'));
+        place(card, rect, 'below');
+        return;
+      }
+      const ph = (trReady && res.phonetic) || (haveDefs && dict.phonetic) || '';
+      if (ph) card.querySelector('.ph').textContent = ph;
+      if (!long && (trReady || haveDefs) && !card.querySelector('.say')) {
+        card.querySelector('.head').insertBefore(
+          h('button', { class: 'icon say', title: 'Listen', 'aria-label': 'Listen', onclick: e => listen(e.currentTarget, text, (dict && dict.ok && settings.sourceLang) || (res && res.src) || settings.sourceLang) }, '\u{1F50A}'),
+          card.querySelector('.grow'));
+      }
+      if (mode === 'translation') {
+        body.appendChild(trReady ? h('div', null, trNodes(false)) : waiting());
+        if (haveDefs) body.appendChild(defsNode(false));
+      } else if (haveDefs) {
+        body.appendChild(defsNode(true));
+        if (trReady && (mode === 'both' || showTr)) body.appendChild(h('div', { class: 'under' }, trNodes(true)));
+        else if (trReady) {
+          // kept in the page (hidden) so it is ready the moment it is asked for
+          body.appendChild(h('div', { class: 'under', hidden: true }, trNodes(true)));
+          body.appendChild(h('button', { class: 'more', onclick: () => { showTr = true; render(); } }, 'Show translation'));
+        }
+      } else if (dictDone || (late && trReady)) {
+        body.appendChild(trReady ? h('div', null, trNodes(false)) : waiting());
+      } else body.appendChild(waiting());
+
+      if (info.context && info.context.length > text.length + 4) body.appendChild(contextNode(info.context, text));
+      // the footer (source and Save) appears once the card has its lead content
+      if (res && (trReady || haveDefs) && (mode === 'translation' || dictDone || late)) {
+        const done = existing || savedEntry;
+        saveBtn = h('button', { class: 'btn pri' }, savedEntry ? 'Saved' : existing ? 'In your vocabulary' : 'Save to vocabulary');
+        saveBtn.disabled = !!done;
+        saveBtn.addEventListener('click', save);
+        const from = [haveDefs ? dict.source || 'Dictionary' : '', trReady && (mode !== 'definition' || showTr || !haveDefs) ? res.provider || '' : ''].filter(Boolean).join(' · ');
+        body.appendChild(h('div', { class: 'foot' }, h('span', { class: 'prov' }, from), h('span', { class: 'grow' }), saveBtn));
+      }
+      place(card, rect, 'below');
+    }
+    async function save() {
+      if (!saveBtn || saveBtn.disabled) return;
+      saveBtn.disabled = true;
+      const src = info.source || {};
+      const ok = res && res.ok;
+      savedEntry = await Store.saveVocab({
+        term: text, translation: ok ? res.translation : '', alts: ok ? res.alts || [] : [],
+        phonetic: (ok && res.phonetic) || (dict && dict.phonetic) || '', defs: (dict && dict.defs) || [], lang: (ok && res.src) || settings.sourceLang || '',
+        contexts: info.context ? [{ sentence: info.context, docId: src.docId || '', docTitle: src.docTitle || '', url: src.url || '', page: src.page || null }] : []
+      });
+      if (cardEl === card && saveBtn) saveBtn.textContent = 'Saved';
+      if (handlers.onSaved) handlers.onSaved(savedEntry);
+    }
+
+    Store.findVocab(text).then(v => { existing = v || null; render(); }).catch(() => {});
+    // A dictionary that is slow to answer does not hold the card up: after a moment the translation is shown,
+    // and the definition joins it if and when it arrives.
+    setTimeout(() => { if (!dictDone && cardEl === card) { late = true; showTr = true; render(); } }, 2500);
+    if (!long) {
+      chrome.runtime.sendMessage({ type: 'define', text }).catch(() => null).then(d => {
+        dict = d && d.ok ? d : null;
+        dictDone = true;
+        // a word saved before its definition arrived gets it added afterwards
+        if (dict && savedEntry) Store.updateVocab(savedEntry.id, { defs: dict.defs, phonetic: savedEntry.phonetic || dict.phonetic || '' });
+        render();
+      });
+    }
     try {
       res = await chrome.runtime.sendMessage({ type: 'lookup', text });
     } catch (e) {
       res = { ok: false, error: 'Margin was updated. Reload this page to continue.' };
     }
-    if (cardEl !== card) return;
-    body.textContent = '';
-    if (!res || !res.ok) {
-      body.appendChild(h('div', { class: 'err' }, (res && res.error) || 'Lookup failed.'));
-      place(card, rect, 'below');
-      return;
-    }
-
-    if (res.phonetic) card.querySelector('.ph').textContent = res.phonetic;
-    if (!long) {
-      card.querySelector('.head').insertBefore(
-        h('button', { class: 'icon', title: 'Listen', 'aria-label': 'Listen', onclick: () => speak(text, res.src) }, '\u{1F50A}'),
-        card.querySelector('.grow')
-      );
-    }
-    if (res.translation) body.appendChild(h('div', { class: 'tr' + (long ? ' long' : '') }, res.translation));
-    if (res.alts && res.alts.length) {
-      body.appendChild(h('div', { class: 'alts' }, res.alts.slice(0, 4).map(a =>
-        h('div', null, a.pos && a.pos !== 'other' ? h('span', { class: 'pos' }, a.pos) : null, a.terms.join(', ')))));
-    }
-    // English definitions arrive on their own, after the translation is already on screen.
-    const defsBox = h('div');
-    body.appendChild(defsBox);
-    let savedEntry = null;
-    if (!long) {
-      chrome.runtime.sendMessage({ type: 'define', text }).then(d => {
-        if (!d || !d.ok || !(d.defs || []).length) return;
-        res.defs = d.defs;
-        if (!res.phonetic && d.phonetic) res.phonetic = d.phonetic;
-        if (savedEntry) Store.updateVocab(savedEntry.id, { defs: res.defs, phonetic: res.phonetic || savedEntry.phonetic || '' });
-        if (cardEl !== card) return;
-        if (res.phonetic) card.querySelector('.ph').textContent = res.phonetic;
-        defsBox.appendChild(h('div', { class: 'defs' }, d.defs.map(x =>
-          h('div', null, h('span', { class: 'pos' }, x.pos), x.definition, x.example ? h('div', { class: 'ex' }, '"' + x.example + '"') : null))));
-        place(card, rect, 'below');
-      }).catch(() => {});
-    }
-    if (info.context && info.context.length > text.length + 4) body.appendChild(contextNode(info.context, text));
-
-    const existing = await Store.findVocab(text);
-    if (cardEl !== card) return;
-    const saveBtn = h('button', { class: 'btn pri' }, existing ? 'In your vocabulary' : 'Save to vocabulary');
-    if (existing) saveBtn.disabled = true;
-    saveBtn.addEventListener('click', async () => {
-      if (saveBtn.disabled) return;
-      saveBtn.disabled = true;
-      const src = info.source || {};
-      const entry = await Store.saveVocab({
-        term: text, translation: res.translation, alts: res.alts || [], phonetic: res.phonetic || '', defs: res.defs || [], lang: res.src || '',
-        contexts: info.context ? [{ sentence: info.context, docId: src.docId || '', docTitle: src.docTitle || '', url: src.url || '', page: src.page || null }] : []
-      });
-      savedEntry = entry;
-      saveBtn.textContent = 'Saved';
-      if (handlers.onSaved) handlers.onSaved(entry);
-    });
-    body.appendChild(h('div', { class: 'foot' }, h('span', { class: 'prov' }, res.provider || ''), h('span', { class: 'grow' }), saveBtn));
-    place(card, rect, 'below');
+    if (!res) res = { ok: false, error: 'Lookup failed.' };
+    render();
   }
 
   // hl: highlight object. handlers: { onColor(name), onNote(text), onDelete(), onTranslate() }
@@ -393,5 +496,5 @@
     return !!host && target === host;
   }
 
-  g.MarginUI = { showToolbar, showCard, showEditor, showColorForm, hide, hideToolbar, hideCard, isOpen, isOwn, toast, sentenceAround, h };
+  g.MarginUI = { setPrivate, showToolbar, showCard, showEditor, showColorForm, hide, hideToolbar, hideCard, isOpen, isOwn, toast, sentenceAround, h, speak, listen };
 })(globalThis);

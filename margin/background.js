@@ -12,8 +12,8 @@ function readerUrl(fileUrl) {
 }
 
 // ---------------------------------------------------------------- lookup
-async function fetchJson(url, ms) {
-  const res = await fetch(url, { signal: AbortSignal.timeout(ms || 5000), credentials: 'omit' });
+async function fetchJson(url, ms, headers) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(ms || 5000), credentials: 'omit', headers: headers || {} });
   if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.json();
 }
@@ -51,8 +51,25 @@ async function myMemoryTranslate(text, sl, tl) {
   return { translation: t, alts: others.length ? [{ pos: 'other', terms: others }] : [], src: sl, translit: '', provider: 'MyMemory' };
 }
 
-async function dictionary(word) {
-  const j = await fetchJson('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word), 4500);
+// One dictionary entry -> { phonetic, defs: [{ pos, definition, example }], source }, at most three senses.
+// Wiktionary (Wikimedia's own service) is asked first; the Free Dictionary API is the fallback.
+const plain = html => String(html || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+async function wiktionary(word, base) {
+  const j = await fetchJson((base || 'https://en.wiktionary.org/api/rest_v1/page/definition/') + encodeURIComponent(word.replace(/ /g, '_')), 9000,
+    { 'Api-User-Agent': 'Margin browser extension (github.com/thinhnguyen140107/margin-extension)' });
+  const defs = [];
+  for (const e of (j && j.en) || []) {
+    const d = (e.definitions || []).find(x => plain(x.definition));
+    if (!d || defs.length >= 3) continue;
+    const ex = plain((d.parsedExamples && d.parsedExamples[0] && d.parsedExamples[0].example) || (d.examples || [])[0]);
+    defs.push({ pos: String(e.partOfSpeech || '').toLowerCase(), definition: plain(d.definition), example: ex.length <= 180 ? ex : '' });
+  }
+  if (!defs.length) throw new Error('no entry');
+  return { phonetic: '', defs, source: 'Wiktionary' };
+}
+async function freeDictionary(word) {
+  const j = await fetchJson('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word), 3000);
   const entry = Array.isArray(j) ? j[0] : null;
   if (!entry) throw new Error('no entry');
   const phonetic = entry.phonetic || ((entry.phonetics || []).find(p => p.text) || {}).text || '';
@@ -61,7 +78,27 @@ async function dictionary(word) {
     const d = (m.definitions || [])[0];
     if (d && defs.length < 3) defs.push({ pos: m.partOfSpeech || '', definition: d.definition || '', example: d.example || '' });
   }
-  return { phonetic, defs };
+  if (!defs.length) throw new Error('no entry');
+  return { phonetic, defs, source: 'Free Dictionary' };
+}
+let dictBase = ''; // a testing switch (settings.debugDict), only settable from an extension page
+async function entryFor(word) {
+  try { return await wiktionary(word, dictBase); } catch (e) { /* not there, or the service is busy */ }
+  if (dictBase) throw new Error('no entry');
+  return freeDictionary(word);
+}
+// For a word form ("hagiographies", "skimmed") the dictionary only says "plural of hagiography". That teaches
+// nothing, so the base word is looked up too and its meaning is what gets shown (with a note of the form).
+const FORM_OF = /^(?:(?:simple |present |past )?(?:plural|past|participle|tense|form|singular|third-person singular simple present indicative|comparative|superlative)[a-z ,-]*?) of ([a-z][a-z'-]*)\b/i;
+async function dictionary(word) {
+  const first = await entryFor(word);
+  const m = first.defs.length && FORM_OF.exec(first.defs[0].definition);
+  if (!m || m[1].toLowerCase() === word) return first;
+  try {
+    const base = await entryFor(m[1].toLowerCase());
+    if (!base.defs.length) return first;
+    return { phonetic: first.phonetic || base.phonetic, defs: base.defs, source: base.source, of: m[1].toLowerCase(), form: first.defs[0].definition.replace(/\.$/, '') };
+  } catch (e) { return first; }
 }
 
 // Recent answers are kept in memory: looking the same word up again is instant.
@@ -95,11 +132,15 @@ async function lookup(text) {
   });
 }
 async function define(text) {
-  text = String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const typed = String(text || '').replace(/\s+/g, ' ').trim();
+  text = typed.toLowerCase();
   const settings = await Store.getSettings();
   if (!text || settings.sourceLang !== 'en' || text.split(' ').length > 3 || text.length > 48) return { ok: false };
+  dictBase = typeof settings.debugDict === 'string' ? settings.debugDict : '';
   return cached('d|' + text, async () => {
-    try { return Object.assign({ ok: true }, await dictionary(text)); } catch (e) { return { ok: false }; }
+    try { return Object.assign({ ok: true }, await dictionary(text)); } catch (e) { /* try it as written: names keep their capital */ }
+    if (typed !== text) { try { return Object.assign({ ok: true }, await dictionary(typed)); } catch (e) { /* no entry */ } }
+    return { ok: false };
   });
 }
 
@@ -233,18 +274,30 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 // ---------------------------------------------------------------- menus + lifecycle
-function setup() {
+// The two selection items exist only while highlighting on web pages is switched on (it is off by default).
+async function buildMenus() {
+  const web = (await Store.getSettings()).webHighlights;
   chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: 'margin-translate', title: 'Translate "%s" with Margin', contexts: ['selection'],
-      documentUrlPatterns: ['http://*/*', 'https://*/*', 'file:///*']
-    });
-    chrome.contextMenus.create({
-      id: 'margin-highlight', title: 'Highlight selection', contexts: ['selection'],
-      documentUrlPatterns: ['http://*/*', 'https://*/*', 'file:///*']
-    });
+    if (web) {
+      chrome.contextMenus.create({
+        id: 'margin-translate', title: 'Translate "%s" with Margin', contexts: ['selection'],
+        documentUrlPatterns: ['http://*/*', 'https://*/*', 'file:///*']
+      });
+      chrome.contextMenus.create({
+        id: 'margin-highlight', title: 'Highlight selection', contexts: ['selection'],
+        documentUrlPatterns: ['http://*/*', 'https://*/*', 'file:///*']
+      });
+    }
     chrome.contextMenus.create({ id: 'margin-open-link', title: 'Open link in Margin PDF reader', contexts: ['link'] });
   });
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.settings) return;
+  const was = changes.settings.oldValue || {}, now = changes.settings.newValue || {};
+  if (!!was.webHighlights !== !!now.webHighlights) buildMenus();
+});
+function setup() {
+  buildMenus();
   chrome.alarms.create('badge', { periodInMinutes: 15 });
   /* dev-only:start */
   chrome.alarms.create('update', { periodInMinutes: 1 });
@@ -263,8 +316,9 @@ chrome.runtime.onInstalled.addListener(details => {
 chrome.runtime.onStartup.addListener(setup);
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === 'margin-open-link' && info.linkUrl) {
-    chrome.tabs.create({ url: readerUrl(info.linkUrl) });
+  if (info.menuItemId === 'margin-open-link') {
+    const link = Store.safeUrl(info.linkUrl);
+    if (link) chrome.tabs.create({ url: readerUrl(link) });
   } else if (tab && tab.id >= 0) {
     const type = info.menuItemId === 'margin-translate' ? 'ctx-translate' : 'ctx-highlight';
     chrome.tabs.sendMessage(tab.id, { type }).catch(() => {});
@@ -298,18 +352,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse(!!sender.tab && stripHash(sender.tab.url) === stripHash(msg.url));
     return;
   }
+  // Addresses arriving in messages are only ever web or local-file addresses.
+  const target = Store.safeUrl(msg.url);
   if (msg.type === 'pdf-redirect') {
-    if (sender.tab) chrome.tabs.update(sender.tab.id, { url: readerUrl(msg.url) });
+    if (sender.tab && target) chrome.tabs.update(sender.tab.id, { url: readerUrl(target) });
   } else if (msg.type === 'open-pdf') {
-    openPdf(msg.url);
+    if (target) openPdf(target);
   } else if (msg.type === 'open-reader') {
-    chrome.tabs.create({ url: msg.url ? readerUrl(msg.url) : READER });
+    chrome.tabs.create({ url: target ? readerUrl(target) : READER });
   } else if (msg.type === 'open-dashboard') {
-    chrome.tabs.create({ url: DASHBOARD + (msg.hash ? '#' + msg.hash : '') });
+    chrome.tabs.create({ url: DASHBOARD + (/^[a-z]+$/.test(msg.hash || '') ? '#' + msg.hash : '') });
   } else if (msg.type === 'open-native') {
-    skip = { url: stripHash(msg.url), until: Date.now() + 15000 };
-    if (sender.tab) chrome.tabs.update(sender.tab.id, { url: msg.url });
-    else chrome.tabs.create({ url: msg.url });
+    if (!target) return;
+    skip = { url: stripHash(target), until: Date.now() + 15000 };
+    if (sender.tab) chrome.tabs.update(sender.tab.id, { url: target });
+    else chrome.tabs.create({ url: target });
   /* dev-only:start */
   } else if (msg.type === 'apply-update') {
     applyUpdate();

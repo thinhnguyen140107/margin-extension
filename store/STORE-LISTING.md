@@ -12,7 +12,7 @@ Everything below is ready to copy into the developer dashboard
 
 ## 1. Upload
 
-**Items > New item** > choose `margin-store-1.14.0.zip` from this folder.
+**Items > New item** > choose `margin-store-1.15.2.zip` from this folder.
 
 ## 2. Store listing tab
 
@@ -26,22 +26,24 @@ the words you choose, and review them as flashcards.
 ```
 Margin turns your browser into a place for serious reading.
 
-Open any PDF and it opens in the Margin reader, on the PDF's own address. Select a passage to highlight it, add a note, or translate just the one word that is in your way - not the whole page. The words you save come back as flashcards, so the vocabulary you meet while reading is vocabulary you keep.
+Open any PDF and it opens in the Margin reader, on the PDF's own address. Select a passage to highlight it, add a note, or look up just the one word that is in your way - not the whole page. The words you save come back as flashcards, so the vocabulary you meet while reading is vocabulary you keep.
 
 HIGHLIGHT WITH A PURPOSE
 - Four colors, each with a meaning you can rename: main idea, evidence, quote to cite, question.
 - Your notes panel groups every highlight by what its color means.
 - Extra colors can be added for a single document.
-- Highlights and notes also work on ordinary web pages and are restored when you return.
+- Keyboard: select text, then press 1 to 4 for a color, N for a note.
+- Optional: switch Margin on for ordinary web pages too (off by default).
 
 SCANNED PDFS
 - Pages that are only images are read on your own computer (English and Vietnamese), so their text can be selected, highlighted, searched and translated.
 - A pen and a highlighter mark anything by hand.
 
-TRANSLATE ONLY WHAT YOU NEED
-- Double-click a word, click Translate, and see its meaning with the sentence it came from.
-- Choose your own language in Settings.
+LEARN THE WORD, NOT JUST ITS TRANSLATION
+- Double-click a word and press T: you get its English definition and the sentence it came from. The translation into your language is one click away, so you think in the language you are reading.
+- Prefer translations first? Change it in Settings, along with your language.
 - Save the word, then review it later: word to meaning, meaning to word, or by typing it. Review is spaced, so words you know well come back less often.
+- Export your words for Anki.
 
 CITE AND EXPORT
 - Finds the published record of an article and formats the citation in APA, MLA, Chicago, Harvard or BibTeX.
@@ -56,7 +58,7 @@ COMFORTABLE TO READ IN
 PRIVATE BY DESIGN
 - No account, no server, no tracking, no ads.
 - Everything is stored in your own browser, with an automatic backup to your Downloads folder.
-- Text leaves your computer only when you ask: the words you choose to translate go to a translation service, and opening the Cite panel looks the document up on Crossref.
+- Text leaves your computer only when you ask: the words you choose to look up go to a dictionary and a translation service, and opening the Cite panel looks the document up on Crossref.
 - Optional sync between your own computers through a folder of your cloud drive.
 
 To read PDFs stored on your computer, turn on "Allow access to file URLs" in the extension's details.
@@ -96,7 +98,7 @@ Text recognized on scanned PDF pages (OCR, done on the device) is cached locally
 
 contextMenus
 ```
-Adds three right-click items: "Translate with Margin" and "Highlight selection" for selected text, and "Open link in Margin PDF reader" for links.
+Adds the right-click item "Open link in Margin PDF reader" for links and, when the user has switched Margin on for web pages, "Translate with Margin" and "Highlight selection" for selected text.
 ```
 
 alarms
@@ -111,7 +113,7 @@ Saves files the user asks for (notes exported as Word or Markdown, a PDF copy wi
 
 Host permission (all sites) and content scripts
 ```
-Margin's two core functions work on any address the user reads: (1) a PDF at any URL is opened in Margin's reader, which needs to detect PDF documents and fetch the file from its own address; (2) the user can highlight, annotate and translate selected text on any web page, and saved highlights are redrawn when the page is visited again. The content script does nothing on a page until the user selects text or the page has highlights the user saved earlier. No page content is collected or transmitted, except the text the user explicitly selects and asks to translate.
+Margin works on any address the user reads: (1) a PDF at any URL is opened in Margin's reader, which needs to detect PDF documents and fetch the file from its own address; (2) if the user switches the option on (it is off by default), they can highlight, annotate and translate selected text on any web page, and their saved highlights are redrawn when the page is visited again. With the option off the content script does nothing on web pages. No page content is collected or transmitted, except the text the user explicitly selects and asks to look up.
 ```
 
 **Are you using remote code?** No, I am not using remote code.
@@ -139,9 +141,9 @@ creditworthiness or lending).
 No account or login is needed.
 1. Open any PDF link, for example https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf - it opens in the Margin reader on the same address.
 2. Select text: a small toolbar offers four highlight colors, Note and Translate.
-3. Translate sends only the selected text to Google Translate (fallback: MyMemory) and shows the result; "Save to vocabulary" stores it locally.
+3. Translate (or the T key) sends only the selected text to Wiktionary for a definition and to Google Translate (fallback: MyMemory) for a translation; "Save to vocabulary" stores it locally.
 4. The toolbar icon opens the dashboard: library of highlights, vocabulary flashcards, settings.
-5. On any ordinary web page, select text to highlight it; the highlight is restored on the next visit.
+5. Web pages are off by default. After switching on "Use Margin on web pages too" in Settings, select text on any page to highlight it; the highlight is restored on the next visit.
 Bundled third-party libraries (unmodified, minified by their authors): PDF.js 4.10.38, Tesseract.js 5.1.1 (OCR runs locally in WebAssembly, which is why the manifest CSP contains 'wasm-unsafe-eval'), pdf-lib 1.17.1.
 ```
 
@@ -172,3 +174,22 @@ requested.
 3. Publish repository (untick "Keep this code private" - the privacy policy link must be public).
 4. Open the repository on github.com, click PRIVACY.md, and copy that page's address into the
    store's privacy policy field.
+
+## Updating the listing for version 1.15.2
+
+Do this only after the first submission has been approved (uploading a new package while a review
+is pending restarts the wait).
+
+1. Package tab: upload `margin-store-1.15.2.zip`.
+2. Store listing tab: replace the description with the one in section 2 above, and replace
+   `screenshot-2.png` and `screenshot-3.png` (the word card and the flashcard changed).
+3. Privacy practices tab: replace the context-menu and host-permission justifications with the
+   ones in section 3. Nothing else changes; the privacy policy link stays the same (the page
+   itself was updated to name Wiktionary).
+4. Test instructions tab (500 characters maximum):
+
+```
+No login needed. Open any PDF link (e.g. https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf): it opens in the Margin reader. Select text for the toolbar: highlight colors, Note, Translate. Translate sends only the selected text to Wiktionary (definition) and Google Translate. The toolbar icon opens the dashboard. Web pages are off by default (Settings). Bundled unmodified libraries: PDF.js, Tesseract.js (local OCR in WebAssembly, hence 'wasm-unsafe-eval'), pdf-lib.
+```
+
+5. Submit for review.

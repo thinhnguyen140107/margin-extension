@@ -18,10 +18,21 @@
   const restyle = () => highlights.forEach(hl => marksOf(hl.id).forEach(m => applyAttrs(m, hl)));
 
   const docInfo = () => ({ id: docId, type: 'web', title: document.title || location.hostname, url });
-  const enabled = () => settings.webEnabled && !settings.disabledHosts.includes(location.hostname);
+  // Off by default: Margin then does nothing at all on ordinary pages (no toolbar, no marks, no menu items).
+  const enabled = () => !!settings.webHighlights && !settings.disabledHosts.includes(location.hostname);
+  let wasOn = enabled();
+  // On a web page the panel is sealed off from the page's own scripts, so a site cannot read your notes or
+  // press Margin's buttons. (settings.debugUi is a testing switch that only an extension page can set.)
+  UI.setPrivate(!settings.debugUi);
 
   chrome.storage.onChanged.addListener(changes => {
-    if (changes.settings) { settings = Object.assign({}, Store.DEFAULTS, changes.settings.newValue || {}); restyle(); }
+    if (changes.settings) {
+      settings = Object.assign({}, Store.DEFAULTS, changes.settings.newValue || {});
+      if (enabled() !== wasOn) {
+        wasOn = enabled();
+        if (wasOn) load(); else { UI.hide(); document.querySelectorAll(TAG).forEach(unwrapEl); }
+      } else restyle();
+    }
     if (changes['doc:' + docId]) { docRecord = changes['doc:' + docId].newValue || null; restyle(); }
     // Highlights changed elsewhere (e.g. deleted from the dashboard): re-sync this page.
     const key = 'hl:' + docId;
@@ -38,6 +49,11 @@
   }
 
   // ------------------------------------------------------------ styles
+  // Added to a page only once Margin is actually used on it.
+  let styled = false;
+  function ensureStyle() {
+    if (styled) return;
+    styled = true;
   const style = document.createElement('style');
   style.textContent =
     TAG + '{background-color:var(--margin-c,#fbe08a)!important;color:#1a1a1a!important;border-radius:2px;cursor:pointer;display:inline!important;' +
@@ -45,6 +61,7 @@
     TAG + '[data-note]{box-shadow:inset 0 -2px 0 rgba(0,0,0,.55);}' +
     TAG + '[data-kind="vocab"]{background-color:transparent!important;color:inherit!important;border-bottom:2px dashed #2f8f76;border-radius:0;}';
   (document.head || document.documentElement).appendChild(style);
+  }
 
   // ------------------------------------------------------------ text model
   function textNodes(root) {
@@ -149,6 +166,8 @@
     docId = Store.webDocId(url);
     highlights = await Store.getHighlights(docId);
     docRecord = (await Store.getDoc(docId)) || null;
+    if (!enabled()) return;
+    ensureStyle();
     if (!highlights.length) return;
     // Pages that render late (single-page apps) get a few more attempts.
     let tries = 0;
@@ -160,7 +179,7 @@
   }
   await load();
   setInterval(() => {
-    if (Store.normalizeUrl(location.href) !== url) {
+    if (enabled() && Store.normalizeUrl(location.href) !== url) {
       document.querySelectorAll(TAG).forEach(unwrapEl);
       load();
     }
@@ -305,7 +324,7 @@
   });
 
   chrome.runtime.onMessage.addListener(msg => {
-    const cur = currentSelection();
+    const cur = enabled() && currentSelection();
     if (!cur) return;
     if (msg.type === 'ctx-translate') translate(cur.range, cur.text, rectOf(cur.range));
     else if (msg.type === 'ctx-highlight') createFromRange(cur.range, {}).then(() => getSelection().removeAllRanges());

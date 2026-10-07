@@ -30,15 +30,6 @@
     if (i < 0) return h('div', { class: cls }, sentence);
     return h('div', { class: cls }, sentence.slice(0, i), h('b', null, sentence.slice(i, i + term.length)), sentence.slice(i + term.length));
   }
-  function speak(text, lang) {
-    try {
-      speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = lang || 'en';
-      speechSynthesis.speak(u);
-    } catch (e) { /* unavailable */ }
-  }
-
   // ------------------------------------------------------------ navigation
   const views = ['library', 'vocab', 'review', 'notes', 'settings'];
   let view = 'library';
@@ -75,9 +66,10 @@
   import('../reader/cite.js').then(m => { Cite = m; if (view === 'library') renderLibrary(); }).catch(() => {});
   // PDFs open through the background worker so they land on their own URL with the reader mounted.
   const openLink = (doc, label, cls) => {
-    if (!doc.url) return null;
-    if (doc.type !== 'pdf') return h('a', { class: cls, href: doc.url, target: '_blank' }, label);
-    return h('a', { class: cls, href: '#', onclick: e => { e.preventDefault(); chrome.runtime.sendMessage({ type: 'open-pdf', url: doc.url }); } }, label);
+    const url = Store.safeUrl(doc.url); // stored addresses are only followed when they are web or local-file ones
+    if (!url) return null;
+    if (doc.type !== 'pdf') return h('a', { class: cls, href: url, target: '_blank', rel: 'noopener noreferrer' }, label);
+    return h('a', { class: cls, href: '#', onclick: e => { e.preventDefault(); chrome.runtime.sendMessage({ type: 'open-pdf', url }); } }, label);
   };
 
   function highlightRow(doc, hl, rerender, pal) {
@@ -257,7 +249,7 @@
       const style = Cite.STYLES.some(x => x[0] === settings.citeStyle) ? settings.citeStyle : 'apa';
       const out = Cite.formatCitation(saved.meta, style);
       const box = h('div', { class: 'citeline' });
-      box.innerHTML = out.html; // escaped in cite.js
+      Cite.renderCitation(box, out.html);
       detail.appendChild(h('div', { class: 'citewrap' }, box,
         h('button', { class: 'btn small', onclick: async () => {
           try {
@@ -284,7 +276,8 @@
 
     const q = $('vocabSearch').value.trim().toLowerCase();
     const sort = $('vocabSort').value;
-    let list = all.filter(v => !q || (v.term + ' ' + v.translation).toLowerCase().includes(q));
+    let list = all.filter(v => !q || (v.term + ' ' + v.translation + ' ' + ((v.defs || [])[0] || {}).definition).toLowerCase().includes(q));
+    const defFirst = (await Store.getSettings()).cardMode !== 'translation';
     if (sort === 'due') list.sort((a, b) => a.srs.due - b.srs.due);
     else if (sort === 'az') list.sort((a, b) => a.term.localeCompare(b.term));
 
@@ -316,11 +309,15 @@
       box.appendChild(h('div', { class: 'word' },
         h('div', null,
           h('div', { class: 'term' }, v.term),
-          h('div', { class: 'ph' }, v.phonetic || '', ' ', h('button', { class: 'link', onclick: () => speak(v.term, v.lang) }, 'Listen'))),
-        h('div', null, tr,
-          (v.alts || []).slice(0, 2).map(a => h('div', { class: 'alt' }, (a.pos && a.pos !== 'other' ? a.pos + ': ' : '') + a.terms.slice(0, 4).join(', ')))),
+          h('div', { class: 'ph' }, v.phonetic || '', ' ', h('button', { class: 'link', onclick: e => UI.listen(e.currentTarget, v.term, v.lang) }, 'Listen'))),
+        // the meaning: the definition leads (unless translations were chosen in Settings), the translation sits under it
+        defFirst && v.defs && v.defs[0]
+          ? h('div', { class: 'meaning' },
+            h('div', { class: 'def1' }, v.defs[0].pos ? h('span', { class: 'pos' }, v.defs[0].pos + ' ') : null, v.defs[0].definition), tr)
+          : h('div', null, tr,
+            (v.alts || []).slice(0, 2).map(a => h('div', { class: 'alt' }, (a.pos && a.pos !== 'other' ? a.pos + ': ' : '') + a.terms.slice(0, 4).join(', ')))),
         h('div', null,
-          ctx ? ctxNode(ctx.sentence, v.term, 'ctx') : (v.defs && v.defs[0] ? h('div', { class: 'ctx' }, v.defs[0].definition) : null),
+          ctx ? ctxNode(ctx.sentence, v.term, 'ctx') : (!defFirst && v.defs && v.defs[0] ? h('div', { class: 'ctx' }, v.defs[0].definition) : null),
           ctx && ctx.docTitle ? (srcLink || h('span', { class: 'src muted' }, ctx.docTitle)) : null),
         h('div', { class: 'side' },
           h('div', null, relDue(v.srs.due)),
@@ -328,6 +325,24 @@
       ));
     }
   }
+  // A plain text file in the layout Anki's "Import File" understands: one word per line, three fields
+  // (word, meaning, example), with the header lines that tell Anki how to read it.
+  $('ankiExport').addEventListener('click', async () => {
+    const all = await Store.listVocab();
+    if (!all.length) return UI.toast('No words to export yet.');
+    const esc = t => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/[\t\r\n]+/g, ' ').trim();
+    const lines = ['#separator:tab', '#html:true', '#notetype:Basic', '#deck:Margin', '#columns:Front\tBack'];
+    for (const v of all) {
+      const ctx = (v.contexts || [])[(v.contexts || []).length - 1];
+      const defs = (v.defs || []).slice(0, 2).map(d => (d.pos ? '<i>' + esc(d.pos) + '</i> ' : '') + esc(d.definition));
+      const back = defs.concat(v.translation ? ['<span style="color:#777">' + esc(v.translation) + '</span>'] : []).join('<br>');
+      const front = '<b>' + esc(v.term) + '</b>' + (v.phonetic ? ' <span style="color:#777">' + esc(v.phonetic) + '</span>' : '') +
+        (ctx && ctx.sentence ? '<br><br><i>' + esc(ctx.sentence) + '</i>' : '');
+      if (back) lines.push(front + '\t' + back);
+    }
+    MarginExport.download(new Blob([lines.join('\n') + '\n'], { type: 'text/plain;charset=utf-8' }), 'margin-words-for-anki.txt');
+    UI.toast((lines.length - 5) + ' words saved. In Anki: File > Import, choose this file.');
+  });
   $('vocabSearch').addEventListener('input', renderVocab);
   $('vocabSort').addEventListener('change', renderVocab);
 
@@ -336,7 +351,7 @@
   //   recognize - see the word, recall its meaning        recall - see the meaning, recall the word
   //   type      - see the meaning, type the word
   const MODES = [['recognize', 'Word → meaning'], ['recall', 'Meaning → word'], ['type', 'Type the word']];
-  let queue = [], qi = 0, revealed = false, practice = false, mode = 'recognize', typed = null;
+  let queue = [], qi = 0, revealed = false, practice = false, mode = 'recognize', typed = null, defFirstReview = true, bothReview = false, showTr = false;
 
   const norm = t => String(t || '').trim().toLowerCase().replace(/\s+/g, ' ');
   function distance(a, b) { // edit distance, to tell a typo from a wrong answer
@@ -363,7 +378,9 @@
     mode = MODES.some(m => m[0] === settings.reviewMode) ? settings.reviewMode : 'recognize';
     practice = !!all;
     queue = all ? (await Store.listVocab()).sort(() => Math.random() - 0.5) : await Store.dueVocab();
-    if (mode !== 'recognize') queue = queue.filter(v => v.translation); // nothing to prompt with otherwise
+    defFirstReview = settings.cardMode !== 'translation';
+    bothReview = settings.cardMode === 'both';
+    if (mode !== 'recognize') queue = queue.filter(v => v.translation || (v.defs || []).length); // nothing to prompt with otherwise
     qi = 0;
     revealed = false;
     typed = null;
@@ -400,14 +417,21 @@
     const long = v.term.length > 40;
     const wordSide = [
       h('div', { class: 'term' + (long ? ' long' : '') }, v.term),
-      h('div', { class: 'ph' }, v.phonetic || '', ' ', h('button', { class: 'link', onclick: () => speak(v.term, v.lang) }, 'Listen')),
+      h('div', { class: 'ph' }, v.phonetic || '', ' ', h('button', { class: 'link', onclick: e => UI.listen(e.currentTarget, v.term, v.lang) }, 'Listen')),
       ctx ? ctxNode(ctx.sentence, v.term, 'ctx') : null
     ];
-    const meaningSide = [
-      h('div', { class: 'tr' }, v.translation || '(no translation saved)'),
-      (v.alts || []).slice(0, 3).map(a => h('div', { class: 'alt' }, (a.pos && a.pos !== 'other' ? a.pos + ': ' : '') + a.terms.slice(0, 4).join(', '))),
-      mode === 'recognize' ? (v.defs || []).slice(0, 2).map(d => h('div', { class: 'def' }, (d.pos ? d.pos + ' · ' : '') + d.definition)) : null
+    // The meaning. With definitions leading (the default) the card shows the definition, and the translation
+    // stays behind a click so that the answer has to be understood, not just recognized.
+    const defs = (v.defs || []).slice(0, 2);
+    const trLines = [
+      h('div', { class: 'tr' + (defFirstReview && defs.length ? ' small' : '') }, v.translation || '(no translation saved)'),
+      (v.alts || []).slice(0, 3).map(a => h('div', { class: 'alt' }, (a.pos && a.pos !== 'other' ? a.pos + ': ' : '') + a.terms.slice(0, 4).join(', ')))
     ];
+    const meaningSide = defFirstReview && defs.length
+      ? [defs.map(d => h('div', { class: 'def lead' }, d.pos ? h('span', { class: 'pos' }, d.pos + ' ') : null, d.definition)),
+        v.translation ? (bothReview || showTr ? trLines
+          : h('button', { class: 'link more', onclick: e => { e.stopPropagation(); showTr = true; drawReview(); } }, 'Show translation')) : null]
+      : [trLines, mode === 'recognize' ? defs.map(d => h('div', { class: 'def' }, (d.pos ? d.pos + ' · ' : '') + d.definition)) : null];
     const hint = ctx && blanked(ctx.sentence, v.term);
     const front = mode === 'recognize' ? wordSide : [meaningSide, hint ? h('div', { class: 'ctx' }, hint) : null];
     const back = mode === 'recognize' ? meaningSide : wordSide;
@@ -457,6 +481,7 @@
     qi++;
     revealed = false;
     typed = null;
+    showTr = false;
     drawReview();
   }
 
@@ -506,7 +531,7 @@
     detail.appendChild(title);
     detail.appendChild(body);
     detail.appendChild(h('div', { class: 'noteFoot' }, status, h('span', { class: 'grow' }),
-      note.sourceUrl ? h('a', { href: note.sourceUrl, target: '_blank' }, 'Source page') : null,
+      Store.safeUrl(note.sourceUrl) ? h('a', { href: Store.safeUrl(note.sourceUrl), target: '_blank', rel: 'noopener noreferrer' }, 'Source page') : null,
       h('button', { class: 'link danger', onclick: async () => {
         if (confirm('Delete this note?')) { clearTimeout(timer); await Store.removeNote(note.id); selectedNote = null; renderNotes(); }
       } }, 'Delete note')));
@@ -569,7 +594,14 @@
 
     box.appendChild(h('h3', null, 'Translation'));
     box.appendChild(h('div', { class: 'box' },
-      row('Translate into', 'The language definitions are shown in.', select('targetLang')),
+      row('A word card shows first', 'The definition makes you think in the language you are reading; the translation is then one click away. Where no definition exists (phrases, names, texts that are not in English) the translation is shown.',
+        (() => {
+          const el = h('select', { class: 'field' }, [['definition', 'The definition'], ['both', 'Definition and translation'], ['translation', 'The translation']].map(([v, l]) => h('option', { value: v }, l)));
+          el.value = ['both', 'translation'].includes(s.cardMode) ? s.cardMode : 'definition';
+          el.addEventListener('change', () => set({ cardMode: el.value }));
+          return el;
+        })()),
+      row('Translate into', 'The language translations are shown in.', select('targetLang')),
       row('I mostly read in', 'Used for dictionary definitions and as the fallback source language.', select('sourceLang')),
       row('Mark saved words in the text', 'Saved words get a dashed underline where you found them.', check('markSavedWords'))));
 
@@ -594,7 +626,7 @@
     box.appendChild(h('div', { class: 'box' },
       row('Open PDFs in the Margin reader', 'PDFs open in the reader on their own address, so you can highlight them.', check('autoOpenPdf')),
       fileRow,
-      row('Show the toolbar on web pages', 'Appears when you select text. Turn off for specific sites from the toolbar icon.', check('webEnabled')),
+      row('Use Margin on web pages too', 'Off: Margin works in PDFs only. On: selecting text on any page shows the toolbar, and your highlights there are kept. Single sites can be switched off from the toolbar icon.', check('webHighlights')),
       row('Default highlight color', 'Used by Note and by the right-click menu.', swatches)));
 
     if (s.disabledHosts.length) {
@@ -602,6 +634,11 @@
       box.appendChild(h('div', { class: 'box' }, s.disabledHosts.map(host =>
         row(host, '', h('button', { class: 'btn small', onclick: async () => { await set({ disabledHosts: s.disabledHosts.filter(x => x !== host) }); renderSettings(); } }, 'Turn on')))));
     }
+
+    box.appendChild(h('h3', null, 'Keyboard in the reader'));
+    box.appendChild(h('div', { class: 'box' },
+      row('With text selected', '1, 2, 3, 4: highlight in that color.  T: look the word up.  N: add a note.', null),
+      row('Anywhere', 'Ctrl + scroll or Ctrl + plus / minus: zoom at the pointer.  Ctrl + 0: 100%.  Ctrl + F: search.  Esc: close.', null)));
 
     box.appendChild(h('h3', null, 'Sync between your computers'));
     const sy = await MarginSync.status();

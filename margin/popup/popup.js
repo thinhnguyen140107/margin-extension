@@ -28,10 +28,10 @@
   try { if (/^https?:/i.test(url)) host = new URL(url).hostname; } catch (e) { /* not a web page */ }
   if (host) {
     const s = await Store.getSettings();
-    $('siteRow').hidden = false;
-    $('siteLabel').textContent = 'Selection toolbar on ' + host;
-    $('site').checked = s.webEnabled && !s.disabledHosts.includes(host);
-    $('site').disabled = !s.webEnabled;
+    // Only offered once Margin has been switched on for web pages (Settings); by default it is a PDF tool.
+    $('siteRow').hidden = !s.webHighlights;
+    $('siteLabel').textContent = 'Margin on ' + host;
+    $('site').checked = !s.disabledHosts.includes(host);
     $('site').addEventListener('change', async () => {
       const cur = await Store.getSettings();
       const list = cur.disabledHosts.filter(h => h !== host);

@@ -35,6 +35,8 @@ main { flex: 1; min-height: 0; }
 .btn.small { padding: 3px 8px; font-size: 12px; }
 .link { border: 0; background: none; padding: 0; color: var(--muted); cursor: pointer; font-size: 12px; }
 .link:hover { color: var(--fg); text-decoration: underline; }
+.link.on { color: var(--accent); }
+.link.bad { opacity: .55; }
 .link.danger:hover { color: var(--danger); }
 .field { height: 34px; border: 1px solid var(--bd); background: var(--panel); border-radius: 8px; padding: 0 10px; outline: none; }
 .field:focus, textarea:focus { border-color: var(--accent); }
@@ -154,3 +156,11 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
 .welcome { max-width: 640px; margin: 10px auto 0; }
 .welcome ol { padding-left: 20px; line-height: 1.7; }
 .welcome p { color: var(--muted); }
+
+/* definitions lead; the translation is secondary */
+.pos { color: var(--muted); font-style: italic; font-size: .9em; }
+.word .def1 { overflow-wrap: anywhere; }
+.word .meaning .tr { color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 3px; }
+.card .def.lead { color: var(--fg); font-size: 18px; line-height: 1.5; margin-top: 8px; }
+.card .tr.small { font-size: 15px; font-weight: 400; margin-top: 12px; }
+.card .more { margin-top: 12px; font-size: 13px; color: var(--accent); }

@@ -8,7 +8,7 @@ const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g,
 const clean = s => String(s == null ? '' : s).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 const endsPunct = s => /[.?!]["'”’)]?$/.test(s);
 const dot = s => (s ? (endsPunct(s) ? s : s + '.') : '');
-const dash = p => String(p || '').replace(/\s*[-‐-―]+\s*/g, '–');
+const dash = p => esc(String(p || '').replace(/\s*[-‐-―]+\s*/g, '–')); // escaped: it goes straight into the citation's markup
 const doiUrl = m => (m.doi ? 'https://doi.org/' + m.doi : m.url && /^https?:/i.test(m.url) ? m.url : '');
 
 // ------------------------------------------------------------ names
@@ -52,7 +52,7 @@ function join(list, lastSep, sep) {
 function apa(m) {
   const names = m.authors.slice(0, 20).map(famInit);
   const A = names.length > 1 ? names.slice(0, -1).join(', ') + ', & ' + names[names.length - 1] : names.join('');
-  const Y = '(' + (m.year || 'n.d.') + ').';
+  const Y = '(' + esc(m.year || 'n.d.') + ').';
   const T = esc(m.title);
   const link = doiUrl(m);
   let body;
@@ -127,7 +127,7 @@ function chicago(m) {
 
 function harvard(m) {
   const A = join(m.authors.map(famInit), ' and ');
-  const Y = '(' + (m.year || 'no date') + ')';
+  const Y = '(' + esc(m.year || 'no date') + ')';
   const T = esc(m.title);
   const link = m.doi ? 'doi: ' + m.doi : doiUrl(m) ? 'Available at: ' + doiUrl(m) : '';
   let s = (A ? esc(A) + ' ' + Y + ' ' : '');
@@ -172,6 +172,21 @@ function norm(meta) {
   m.editors = (meta.editors || []).filter(n => n && n.family);
   m.title = clean(m.title) || 'Untitled';
   return m;
+}
+
+// Puts a formatted citation on the page. The markup produced above only ever contains <i> and <pre>; this
+// builds exactly those two elements and treats everything else as plain text, so no other markup - whatever
+// the bibliographic data contained - can reach the page.
+export function renderCitation(el, html) {
+  el.textContent = '';
+  const decode = t => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  let into = el;
+  for (const part of String(html).split(/(<\/?i>|<\/?pre>)/)) {
+    if (!part) continue;
+    if (part === '<i>' || part === '<pre>') { into = el.appendChild(document.createElement(part === '<i>' ? 'i' : 'pre')); }
+    else if (part === '</i>' || part === '</pre>') into = el;
+    else into.appendChild(document.createTextNode(decode(part)));
+  }
 }
 
 // -> { html, text }

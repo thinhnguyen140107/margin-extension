@@ -33,8 +33,9 @@
     targetLang: guessTarget(),
     sourceLang: 'en',
     autoOpenPdf: true,
-    webEnabled: true,
+    webHighlights: false, // Margin is a PDF reader first; highlighting on ordinary web pages is opt-in
     disabledHosts: [],
+    cardMode: 'definition', // what a word card leads with: 'definition' | 'translation' | 'both'
     defaultColor: 'yellow',
     markSavedWords: true
   };
@@ -51,15 +52,23 @@
   const LEGACY = { purple: { id: 'purple', hex: '#8a63f5', name: 'Purple' } };
   const COLORS = Object.fromEntries(PALETTE.concat(Object.values(LEGACY)).map(c => [c.id, c.hex]));
 
+  // Colors end up inside style attributes, so only a plain #rrggbb is ever accepted from stored data.
+  const okHex = v => typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v);
+  const okColor = c => c && typeof c.id === 'string' && okHex(c.hex);
   function globalPalette(settings) {
-    const saved = (settings && settings.palette) || [];
-    return PALETTE.map(def => Object.assign({ scope: 'global' }, def, saved.find(c => c.id === def.id) || {}));
+    const saved = (settings && Array.isArray(settings.palette) ? settings.palette : []).filter(okColor);
+    return PALETTE.map(def => {
+      const mine = saved.find(c => c.id === def.id);
+      return Object.assign({ scope: 'global' }, def, mine ? { hex: mine.hex, name: String(mine.name || def.name).slice(0, 60) } : {});
+    });
   }
+  // Only web and local addresses are ever opened or fetched; anything else (javascript:, data:, ...) is dropped.
+  const safeUrl = u => (typeof u === 'string' && /^(https?|file):/i.test(u.trim()) ? u.trim() : '');
   // Everything selectable on one document: the four main colors, then that document's own colors.
   function paletteFor(settings, docRecord, highlights) {
     const out = globalPalette(settings);
-    for (const c of (docRecord && docRecord.colors) || []) {
-      if (!out.some(x => x.id === c.id)) out.push(Object.assign({ scope: 'doc' }, c));
+    for (const c of (docRecord && Array.isArray(docRecord.colors) ? docRecord.colors : [])) {
+      if (okColor(c) && !out.some(x => x.id === c.id)) out.push({ scope: 'doc', id: c.id, hex: c.hex, name: String(c.name || '').slice(0, 60) });
     }
     for (const hl of highlights || []) {
       if (hl.color && LEGACY[hl.color] && !out.some(x => x.id === hl.color)) out.push(Object.assign({ scope: 'doc' }, LEGACY[hl.color]));
@@ -127,7 +136,7 @@
   }
   // Settings that describe how you work (shared between your computers when sync is on); the rest,
   // such as zoom or page theme, stay with the device.
-  const SHARED_SETTINGS = ['palette', 'defaultColor', 'citeStyle', 'targetLang', 'sourceLang', 'ocr', 'reviewMode'];
+  const SHARED_SETTINGS = ['palette', 'defaultColor', 'citeStyle', 'targetLang', 'sourceLang', 'ocr', 'reviewMode', 'cardMode'];
   async function setSettings(patch) {
     const s = Object.assign(await getSettings(), patch);
     if (Object.keys(patch).some(k => SHARED_SETTINGS.includes(k))) s.sharedAt = Date.now();
@@ -329,9 +338,35 @@
   // the newer version of each item wins, highlights are merged one by one, and anything deleted on
   // either side stays deleted. Pure function - used by Import and by sync.
   const stamp = x => (x && (x.updatedAt || x.createdAt || x.at)) || 0;
+  // A backup or sync file comes from outside this browser. Before it is trusted, keep only the kinds of
+  // record Margin itself writes, in the shape it writes them; everything else in the file is ignored.
+  function sanitize(data) {
+    const out = {};
+    const obj = v => v && typeof v === 'object' && !Array.isArray(v);
+    if (!obj(data)) return out;
+    for (const key of Object.keys(data)) {
+      const v = data[key];
+      if (key === 'settings') {
+        if (obj(v)) out.settings = Object.fromEntries(Object.entries(v).filter(([k]) => !k.startsWith('_') && !k.startsWith('debug')));
+      } else if (key === 'tombs') {
+        if (obj(v)) out.tombs = Object.fromEntries(Object.entries(v).filter(([, t]) => typeof t === 'number'));
+      } else if (key.startsWith('hl:')) {
+        if (Array.isArray(v)) out[key] = v.filter(x => obj(x) && typeof x.id === 'string');
+      } else if (key.startsWith('doc:')) {
+        if (obj(v) && typeof v.id === 'string' && 'doc:' + v.id === key) out[key] = Object.assign({}, v, { url: safeUrl(v.url) });
+      } else if (key.startsWith('voc:')) {
+        if (obj(v) && typeof v.id === 'string' && typeof v.term === 'string' && obj(v.srs)) out[key] = v;
+      } else if (key.startsWith('note:')) {
+        if (obj(v) && typeof v.id === 'string') out[key] = Object.assign({}, v, { sourceUrl: safeUrl(v.sourceUrl) });
+      } else if (key.startsWith('cite:')) {
+        if (obj(v) && obj(v.meta)) out[key] = v;
+      }
+    }
+    return out;
+  }
   function mergeData(local, remote) {
     local = local || {};
-    remote = remote || {};
+    remote = sanitize(remote);
     const out = {};
     const tombs = Object.assign({}, remote.tombs || {});
     for (const k in local.tombs || {}) tombs[k] = Math.max(tombs[k] || 0, local.tombs[k]);
@@ -390,7 +425,7 @@
     if (!payload || payload.app !== 'margin' || !payload.data) throw new Error('Not a Margin backup file');
     if (replace) {
       await S.clear();
-      await S.set(payload.data);
+      await S.set(sanitize(payload.data));
       return;
     }
     const current = await S.get(null);
@@ -401,7 +436,7 @@
   }
 
   g.MarginStore = {
-    DEFAULTS, LANGS, COLORS, PALETTE, DAY, uid, hash, normalizeUrl, webDocId, normTerm,
+    DEFAULTS, LANGS, COLORS, PALETTE, DAY, uid, hash, normalizeUrl, webDocId, normTerm, safeUrl, sanitize,
     globalPalette, paletteFor, colorOf, tint, saveDocColor, removeDocColor, saveGlobalColor,
     getSettings, setSettings,
     getDoc, upsertDoc, patchDoc, listDocs, removeDoc,

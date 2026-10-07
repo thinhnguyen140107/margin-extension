@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Margin - PDF Highlighter, Notes & Vocabulary",
   "short_name": "Margin",
-  "version": "1.14.0",
+  "version": "1.15.2",
   "description": "Highlight and annotate PDFs and web pages, translate only the words you choose, and review them as flashcards.",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -62,10 +62,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "reader/*",
-        "common/*",
-        "icons/*",
-        "ocr/*"
+        "reader/reader.html",
+        "icons/icon32.png"
       ],
       "matches": [
         "<all_urls>"
